@@ -6,12 +6,13 @@ from math import inf
 
 import torch
 from torch.utils.data import DataLoader
-from tqdm import tqdm
+# from tqdm import tqdm
 import wandb
 import numpy as np
 
 from src.evaluation import evaluate_auc, evaluate_hits, evaluate_mrr
 from src.utils import get_num_samples
+import sklearn.metrics as skm
 
 
 def get_test_func(model_str):
@@ -25,42 +26,96 @@ def get_test_func(model_str):
 
 @torch.no_grad()
 def test(model, evaluator, train_loader, val_loader, test_loader, args, device, emb=None, eval_metric='hits'):
-    print('starting testing')
+    # print('starting testing')
     t0 = time.time()
     model.eval()
-    print("get train predictions")
+    # print("get train predictions")
     test_func = get_test_func(args.model)
-    pos_train_pred, neg_train_pred, train_pred, train_true = test_func(model, train_loader, device, args, split='train')
-    print("get val predictions")
-    pos_val_pred, neg_val_pred, val_pred, val_true = test_func(model, val_loader, device, args, split='val')
-    print("get test predictions")
+    # pos_train_pred, neg_train_pred, train_pred, train_true = test_func(model, train_loader, device, args, split='train')
+    # print("get val predictions")
+    # pos_val_pred, neg_val_pred, val_pred, val_true = test_func(model, val_loader, device, args, split='val')
+    # print("get test predictions")
     pos_test_pred, neg_test_pred, test_pred, test_true = test_func(model, test_loader, device, args, split='test')
 
-    if eval_metric == 'hits':
-        results = evaluate_hits(evaluator, pos_train_pred, neg_train_pred, pos_val_pred, neg_val_pred, pos_test_pred,
-                                neg_test_pred, Ks=[args.K])
-    elif eval_metric == 'mrr':
+    # if eval_metric == 'hits':
+    #     results = evaluate_hits(evaluator, pos_train_pred, neg_train_pred, pos_val_pred, neg_val_pred, pos_test_pred,
+    #                             neg_test_pred, Ks=[args.K])
+    # elif eval_metric == 'mrr':
 
-        results = evaluate_mrr(evaluator, pos_train_pred, neg_train_pred, pos_val_pred, neg_val_pred, pos_test_pred,
-                               neg_test_pred)
-    elif eval_metric == 'auc':
-        results = evaluate_auc(val_pred, val_true, test_pred, test_true)
+    #     results = evaluate_mrr(evaluator, pos_train_pred, neg_train_pred, pos_val_pred, neg_val_pred, pos_test_pred,
+    #                            neg_test_pred)
+    # elif eval_metric == 'auc':
+    #     results = evaluate_auc(val_pred, val_true, test_pred, test_true)
 
-    print(f'testing ran in {time.time() - t0}')
+    # print(f'testing ran in {time.time() - t0}')
 
+    # return results
+    return metric(test_pred, test_true, args.multiclass)
+
+def metric(scores, labels, multiclass):
+    results = {}
+
+    if multiclass:
+        all_scores_np = torch.sigmoid(scores)
+        predicted = torch.argmax(all_scores_np, axis=1).cpu().numpy()
+        
+        # accuracy
+        accuracy = skm.accuracy_score(labels, predicted)
+
+        labels = set()
+        for e in labels:
+            labels.add(e)
+
+        # Micro-F1
+        micro_f1 = skm.f1_score(labels, predicted, labels=list(labels), average="micro")
+
+        # Macro-F1
+        macro_f1 = skm.f1_score(labels, predicted, labels=list(labels), average="macro")
+
+        # Logger.log("Acc: {:.4f} Micro-F1: {:.4f} Macro-F1: {:.4f}".format(accuracy, micro_f1, macro_f1))
+        results['accuracy'], results['micro_f1'], results['macro_f1'] = accuracy, micro_f1, macro_f1
+    else:
+        all_scores_np = torch.sigmoid(scores).cpu().numpy()
+        predicted = (all_scores_np > 0.5).astype(int)
+
+        # auc
+        auc = skm.roc_auc_score(labels, scores)
+
+        # accuracy
+        accuracy = skm.accuracy_score(labels, predicted)
+
+        # recall
+        recall = skm.recall_score(labels, predicted)
+
+        # precision
+        precision = skm.precision_score(labels, predicted)
+
+        # F1
+        f1 = skm.f1_score(labels, predicted)
+
+        # AUPR
+        pr, re, _ = skm.precision_recall_curve(labels, scores)
+        aupr = skm.auc(re, pr)
+
+        # AP
+        ap = skm.average_precision_score(labels, scores)
+
+        # Logger.log("Acc: {:.4f} AUC: {:.4f} Pr: {:.4f} Re: {:.4f} F1: {:.4f} AUPR: {:.4f} AP: {:.4f}".format(accuracy, auc, precision, recall, f1, aupr, ap))
+        results['accuracy'], results['auc'], results['precision'], results['recall'], results['f1'], results['aupr'], results['ap'] = accuracy, auc, precision, recall, f1, aupr, ap
     return results
 
+    
 
 @torch.no_grad()
 def get_preds(model, loader, device, args, emb=None, split=None):
     n_samples = get_split_samples(split, args, len(loader.dataset))
     y_pred, y_true = [], []
-    pbar = tqdm(loader, ncols=70)
+    # pbar = tqdm(loader, ncols=70)
     if args.wandb:
         wandb.log({f"inference_{split}_total_batches": len(loader)})
     batch_processing_times = []
     t0 = time.time()
-    for batch_count, data in enumerate(pbar):
+    for batch_count, data in enumerate(loader):
         start_time = time.time()
         # todo this should not get hit, refactor out the if statement
         if args.model == 'BUDDY':
@@ -113,7 +168,7 @@ def get_buddy_preds(model, loader, device, args, split=None):
             emb = model.node_embedding.weight
     else:
         emb = None
-    for batch_count, indices in enumerate(tqdm(loader)):
+    for batch_count, indices in enumerate(loader):
         curr_links = links[indices]
         batch_emb = None if emb is None else emb[curr_links].to(device)
         if args.use_struct_feature:
@@ -183,7 +238,7 @@ def get_elph_preds(model, loader, device, args, split=None):
     else:
         emb = None
     node_features, hashes, cards = model(data.x.to(device), data.edge_index.to(device))
-    for batch_count, indices in enumerate(tqdm(loader)):
+    for batch_count, indices in enumerate(loader):
         curr_links = links[indices].to(device)
         batch_emb = None if emb is None else emb[curr_links].to(device)
         if args.use_struct_feature:

@@ -7,7 +7,7 @@ from math import inf
 import torch
 from torch.utils.data import DataLoader
 from torch.nn import BCEWithLogitsLoss
-from tqdm import tqdm
+# from tqdm import tqdm
 import wandb
 import numpy as np
 
@@ -25,7 +25,7 @@ def get_train_func(args):
 
 
 def train_buddy(model, optimizer, train_loader, args, device, emb=None):
-    print('starting training')
+    # print('starting training')
     t0 = time.time()
     model.train()
     total_loss = 0
@@ -43,7 +43,7 @@ def train_buddy(model, optimizer, train_loader, args, device, emb=None):
         wandb.log({"train_total_batches": len(train_loader)})
     batch_processing_times = []
     loader = DataLoader(range(len(links)), args.batch_size, shuffle=True)
-    for batch_count, indices in enumerate(tqdm(loader)):
+    for batch_count, indices in enumerate(loader):
         # do node level things
         if model.node_embedding is not None:
             if args.propagate_embeddings:
@@ -81,7 +81,7 @@ def train_buddy(model, optimizer, train_loader, args, device, emb=None):
         wandb.log({"train_batch_time": np.mean(batch_processing_times)})
         wandb.log({"train_epoch_time": time.time() - t0})
 
-    print(f'training ran in {time.time() - t0}')
+    # print(f'training ran in {time.time() - t0}')
 
     if args.log_features:
         model.log_wandb()
@@ -109,11 +109,11 @@ def train(model, optimizer, train_loader, args, device, emb=None):
     else:
         train_samples = inf
     total_loss = 0
-    pbar = tqdm(train_loader, ncols=70)
+    # pbar = tqdm(train_loader, ncols=70)
     if args.wandb:
         wandb.log({"train_total_batches": len(train_loader)})
     batch_processing_times = []
-    for batch_count, data in enumerate(pbar):
+    for batch_count, data in enumerate(train_loader):
         start_time = time.time()
         optimizer.zero_grad()
         # todo this loop should no longer be hit as this function isn't called for BUDDY
@@ -185,7 +185,7 @@ def train_elph(model, optimizer, train_loader, args, device):
         wandb.log({"train_total_batches": len(train_loader)})
     batch_processing_times = []
     loader = DataLoader(range(len(links)), args.batch_size, shuffle=True)
-    for batch_count, indices in enumerate(tqdm(loader)):
+    for batch_count, indices in enumerate(loader):
         # do node level things
         if model.node_embedding is not None:
             if args.propagate_embeddings:

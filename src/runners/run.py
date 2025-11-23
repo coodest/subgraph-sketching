@@ -20,6 +20,8 @@ import wandb
 # not a performance bottleneck, so suppress for now
 from scipy.sparse import SparseEfficiencyWarning
 
+from src.context import context
+
 warnings.filterwarnings("ignore", category=SparseEfficiencyWarning)
 
 from src.data import get_data, get_loaders
@@ -29,6 +31,7 @@ from src.utils import ROOT_DIR, print_model_params, select_embedding, str2bool
 from src.wandb_setup import initialise_wandb
 from src.runners.train import get_train_func
 from src.runners.inference import test
+from src.lp_common import Logger
 
 def print_results_list(results_list):
     for idx, res in enumerate(results_list):
@@ -49,7 +52,10 @@ def set_seed(seed):
 
 def run(args):
     args = initialise_wandb(args)
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    if args.dataset_name == "blogcatalog":
+        device = torch.device('cpu')
+    else:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"executing on {device}")
     results_list = []
     train_func = get_train_func(args)
@@ -64,7 +70,7 @@ def run(args):
         emb = select_embedding(args, dataset.data.num_nodes, device)
         model, optimizer = select_model(args, dataset, emb, device)
         val_res = test_res = best_epoch = 0
-        print(f'running repetition {rep}')
+        # print(f'running repetition {rep}')
         if rep == 0:
             print_model_params(model)
         for epoch in range(args.epochs):
@@ -73,41 +79,46 @@ def run(args):
             if (epoch + 1) % args.eval_steps == 0:
                 results = test(model, evaluator, train_eval_loader, val_loader, test_loader, args, device,
                                eval_metric=eval_metric)
-                for key, result in results.items():
-                    train_res, tmp_val_res, tmp_test_res = result
-                    if tmp_val_res > val_res:
-                        val_res = tmp_val_res
-                        test_res = tmp_test_res
-                        best_epoch = epoch
-                    res_dic = {f'rep{rep}_loss': loss, f'rep{rep}_Train' + key: 100 * train_res,
-                               f'rep{rep}_Val' + key: 100 * val_res, f'rep{rep}_tmp_val' + key: 100 * tmp_val_res,
-                               f'rep{rep}_tmp_test' + key: 100 * tmp_test_res,
-                               f'rep{rep}_Test' + key: 100 * test_res, f'rep{rep}_best_epoch': best_epoch,
-                               f'rep{rep}_epoch_time': time.time() - t0, 'epoch_step': epoch}
-                    if args.wandb:
-                        wandb.log(res_dic)
-                    to_print = f'Epoch: {epoch:02d}, Best epoch: {best_epoch}, Loss: {loss:.4f}, Train: {100 * train_res:.2f}%, Valid: ' \
-                               f'{100 * val_res:.2f}%, Test: {100 * test_res:.2f}%, epoch time: {time.time() - t0:.1f}'
-                    print(key)
-                    print(to_print)
-        if args.reps > 1:
-            results_list.append([test_res, val_res, train_res])
-            print_results_list(results_list)
-    if args.reps > 1:
-        test_acc_mean, val_acc_mean, train_acc_mean = np.mean(results_list, axis=0) * 100
-        test_acc_std = np.sqrt(np.var(results_list, axis=0)[0]) * 100
-        val_acc_std = np.sqrt(np.var(results_list, axis=0)[1]) * 100
+            if (epoch + 1) % 1 == 0:
+                print(f"{epoch + 1} epoch completed.")
+        for key, result in results.items():
+            Logger.log(f"{key}: {result}")
+        Logger.log("\n\n", title=False)
+                # for key, result in results.items():
+                #     train_res, tmp_val_res, tmp_test_res = result
+                #     if tmp_val_res > val_res:
+                #         val_res = tmp_val_res
+                #         test_res = tmp_test_res
+                #         best_epoch = epoch
+                #     res_dic = {f'rep{rep}_loss': loss, f'rep{rep}_Train' + key: 100 * train_res,
+                #                f'rep{rep}_Val' + key: 100 * val_res, f'rep{rep}_tmp_val' + key: 100 * tmp_val_res,
+                #                f'rep{rep}_tmp_test' + key: 100 * tmp_test_res,
+                #                f'rep{rep}_Test' + key: 100 * test_res, f'rep{rep}_best_epoch': best_epoch,
+                #                f'rep{rep}_epoch_time': time.time() - t0, 'epoch_step': epoch}
+                #     if args.wandb:
+                #         wandb.log(res_dic)
+                #     to_print = f'Epoch: {epoch:02d}, Best epoch: {best_epoch}, Loss: {loss:.4f}, Train: {100 * train_res:.2f}%, Valid: ' \
+                #                f'{100 * val_res:.2f}%, Test: {100 * test_res:.2f}%, epoch time: {time.time() - t0:.1f}'
+                    # print(key)
+                    # print(to_print)
+    #     if args.reps > 1:
+    #         results_list.append([test_res, val_res, train_res])
+    #         print_results_list(results_list)
+    # if args.reps > 1:
+    #     test_acc_mean, val_acc_mean, train_acc_mean = np.mean(results_list, axis=0) * 100
+    #     test_acc_std = np.sqrt(np.var(results_list, axis=0)[0]) * 100
+    #     val_acc_std = np.sqrt(np.var(results_list, axis=0)[1]) * 100
 
-        wandb_results = {'test_mean': test_acc_mean, 'val_mean': val_acc_mean, 'train_mean': train_acc_mean,
-                         'test_acc_std': test_acc_std, 'val_acc_std': val_acc_std}
-        print(wandb_results)
-        if args.wandb:
-            wandb.log(wandb_results)
-    if args.wandb:
-        wandb.finish()
-    if args.save_model:
-        path = f'{ROOT_DIR}/saved_models/{args.dataset_name}'
-        torch.save(model.state_dict(), path)
+    #     wandb_results = {'test_mean': test_acc_mean, 'val_mean': val_acc_mean, 'train_mean': train_acc_mean,
+    #                      'test_acc_std': test_acc_std, 'val_acc_std': val_acc_std}
+    #     print(wandb_results)
+    #     if args.wandb:
+    #         wandb.log(wandb_results)
+    # if args.wandb:
+    #     wandb.finish()
+    # if args.save_model:
+    #     path = f'{ROOT_DIR}/saved_models/{args.dataset_name}'
+    #     torch.save(model.state_dict(), path)
 
 
 def select_model(args, dataset, emb, device):
@@ -146,13 +157,15 @@ def select_model(args, dataset, emb, device):
 if __name__ == '__main__':
     # Data settings
     parser = argparse.ArgumentParser(description='Efficient Link Prediction with Hashes (ELPH)')
-    parser.add_argument('--dataset_name', type=str, default='Cora',
-                        choices=['Cora', 'Citeseer', 'Pubmed', 'ogbl-ppa', 'ogbl-collab', 'ogbl-ddi',
-                                 'ogbl-citation2'])
+    # parser.add_argument('--dataset_name', type=str, default='Cora',
+    #                     choices=['Cora', 'Citeseer', 'Pubmed', 'ogbl-ppa', 'ogbl-collab', 'ogbl-ddi',
+    #                              'ogbl-citation2'])
+    parser.add_argument('--dataset_name', type=str, default='Cora')
     parser.add_argument('--val_pct', type=float, default=0.1,
                         help='the percentage of supervision edges to be used for validation. These edges will not appear'
                              ' in the training set and will only be used as message passing edges in the test set')
-    parser.add_argument('--test_pct', type=float, default=0.2,
+    # parser.add_argument('--test_pct', type=float, default=0.2,
+    parser.add_argument('--test_pct', type=float, default=0.5,
                         help='the percentage of supervision edges to be used for test. These edges will not appear'
                              ' in the training or validation sets for either supervision or message passing')
     parser.add_argument('--train_samples', type=float, default=inf, help='the number of training edges or % if < 1')
@@ -240,6 +253,7 @@ if __name__ == '__main__':
                              'Reduce or this or increase system RAM if seeing killed messages for large graphs')
     # wandb settings
     parser.add_argument('--wandb', action='store_true', help="flag if logging to wandb")
+    parser.add_argument('--multiclass', action='store_true', help="multiclass")
     parser.add_argument('--wandb_offline', dest='use_wandb_offline',
                         action='store_true')  # https://docs.wandb.ai/guides/technical-faq
 
@@ -264,5 +278,12 @@ if __name__ == '__main__':
     if args.dataset_name == 'ogbl-ddi':
         args.use_feature = 0  # dataset has no features
         assert args.sign_k > 0, '--sign_k must be set to > 0 i.e. 1,2 or 3 for ogbl-ddi'
-    print(args)
+    # print(args)
+
+    Logger.path = f"./output/{args.dataset_name}.log"
+    if args.multiclass:
+        context["multicalss"] = True
+    else:
+        context["multicalss"] = False
+
     run(args)

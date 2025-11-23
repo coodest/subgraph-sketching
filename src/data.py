@@ -17,7 +17,7 @@ from torch_geometric.datasets import Planetoid
 from torch_geometric.transforms import RandomLinkSplit
 from torch_geometric.utils import (add_self_loops, negative_sampling,
                                    to_undirected)
-from torch_geometric.utils.negative_sampling import vector_to_edge_index, edge_index_to_vector, sample
+from torch_geometric.utils._negative_sampling import vector_to_edge_index, edge_index_to_vector, sample
 from torch_geometric.utils.num_nodes import maybe_num_nodes
 from torch_geometric.loader import DataLoader as pygDataLoader
 import wandb
@@ -26,6 +26,9 @@ from src.utils import ROOT_DIR, get_same_source_negs, neighbors
 from src.lcc import get_largest_connected_component, remap_edges, get_node_mapper
 from src.datasets.seal import get_train_val_test_datasets
 from src.datasets.elph import get_hashed_train_val_test_datasets, make_train_eval_data
+from src.context import context
+import pickle
+from torch_geometric.data import InMemoryDataset
 
 
 def get_loaders(args, dataset, splits, directed):
@@ -80,8 +83,12 @@ def get_data(args):
     dataset_name = args.dataset_name
     val_pct = args.val_pct
     test_pct = args.test_pct
-    use_lcc_flag = True
-    directed = False
+    if args.dataset_name == "twitter":
+        use_lcc_flag = False
+    else:
+        use_lcc_flag = True
+    # directed = False
+    directed = True
     eval_metric = 'hits'
     path = os.path.join(ROOT_DIR, 'dataset', dataset_name)
     print(f'reading data from: {path}')
@@ -92,7 +99,37 @@ def get_data(args):
             dataset.data.x = torch.ones((dataset.data.num_nodes, 1))
             dataset.data.edge_weight = torch.ones(dataset.data.edge_index.size(1), dtype=int)
     else:
-        dataset = Planetoid(path, dataset_name)
+        # dataset = Planetoid(path, dataset_name)
+        dataset = InMemoryDataset()
+
+        with open(f"./input/{dataset_name}.pkl", 'rb') as file:
+            loaded = pickle.load(file)
+        if len(loaded) == 4:
+            x, edge_index, y, edge_label = loaded
+            edge_label_dict = dict()
+            edge_class_set = set()
+
+            for i in range(len(edge_label)):
+                edge_class_set.add(edge_label[i])
+            context["num_class"] = len(edge_class_set)
+
+            l2i = dict()
+            for index, label in enumerate(edge_class_set):
+                l2i[label] = index
+
+            for i in range(len(edge_label)):
+                edge_label_dict[(edge_index[0][i], edge_index[1][i])] = l2i[edge_label[i]]
+            context["edge_label_dict"] = edge_label_dict
+        else:
+            x, edge_index, y = loaded
+
+
+        data = Data(
+            x=torch.tensor(x, dtype=torch.float32), 
+            edge_index=torch.tensor(edge_index, dtype=torch.int64), 
+            y=torch.tensor(y, dtype=torch.int64)
+        )
+        dataset._data = data
 
     # set the metric
     if dataset_name.startswith('ogbl-citation'):
