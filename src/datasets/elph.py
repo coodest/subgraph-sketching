@@ -2,6 +2,7 @@
 constructing the hashed data objects used by elph and buddy
 """
 
+from src.context import context
 import os
 from time import time
 
@@ -49,7 +50,18 @@ class HashDataset(Dataset):
         super(HashDataset, self).__init__(root)
 
         self.links = torch.cat([self.pos_edges, self.neg_edges], 0)  # [n_edges, 2]
-        self.labels = [1] * self.pos_edges.size(0) + [0] * self.neg_edges.size(0)
+        if context["multiclass"]:
+            self.labels = []
+            for edge in self.pos_edges:
+                if tuple(edge.numpy()) in context["edge_label_dict"]:
+                    self.labels.append(context["edge_label_dict"][tuple(edge.numpy())])
+                else:
+                    print("unknowledge edges.")
+                    self.labels.append(0)
+
+            self.labels = self.labels + [0] * self.neg_edges.size(0)
+        else:
+            self.labels = [1] * self.pos_edges.size(0) + [0] * self.neg_edges.size(0)
 
         if self.use_coalesce:  # compress multi-edge into edge with weight
             data.edge_index, data.edge_weight = coalesce(
@@ -253,13 +265,13 @@ def get_hashed_train_val_test_datasets(dataset, train_data, val_data, test_data,
         f'before sampling, considering a superset of {pos_train_edge.shape[0]} pos, {neg_train_edge.shape[0]} neg train edges '
         f'{pos_val_edge.shape[0]} pos, {neg_val_edge.shape[0]} neg val edges '
         f'and {pos_test_edge.shape[0]} pos, {neg_test_edge.shape[0]} neg test edges for supervision')
-    print('constructing training dataset object')
+    # print('constructing training dataset object')
     train_dataset = HashDataset(root, 'train', train_data, pos_train_edge, neg_train_edge, args,
                                 use_coalesce=use_coalesce, directed=directed)
-    print('constructing validation dataset object')
+    # print('constructing validation dataset object')
     val_dataset = HashDataset(root, 'valid', val_data, pos_val_edge, neg_val_edge, args,
                               use_coalesce=use_coalesce, directed=directed)
-    print('constructing test dataset object')
+    # print('constructing test dataset object')
     test_dataset = HashDataset(root, 'test', test_data, pos_test_edge, neg_test_edge, args,
                                use_coalesce=use_coalesce, directed=directed)
     return train_dataset, val_dataset, test_dataset

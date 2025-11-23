@@ -13,6 +13,7 @@ import numpy as np
 from src.evaluation import evaluate_auc, evaluate_hits, evaluate_mrr
 from src.utils import get_num_samples
 import sklearn.metrics as skm
+from src.context import context
 
 
 def get_test_func(model_str):
@@ -62,15 +63,15 @@ def metric(scores, labels, multiclass):
         # accuracy
         accuracy = skm.accuracy_score(labels, predicted)
 
-        labels = set()
+        all_labels = set()
         for e in labels:
-            labels.add(e)
+            all_labels.add(e)
 
         # Micro-F1
-        micro_f1 = skm.f1_score(labels, predicted, labels=list(labels), average="micro")
+        micro_f1 = skm.f1_score(labels, predicted, labels=list(all_labels), average="micro")
 
         # Macro-F1
-        macro_f1 = skm.f1_score(labels, predicted, labels=list(labels), average="macro")
+        macro_f1 = skm.f1_score(labels, predicted, labels=list(all_labels), average="macro")
 
         # Logger.log("Acc: {:.4f} Micro-F1: {:.4f} Macro-F1: {:.4f}".format(accuracy, micro_f1, macro_f1))
         results['accuracy'], results['micro_f1'], results['macro_f1'] = accuracy, micro_f1, macro_f1
@@ -182,7 +183,10 @@ def get_buddy_preds(model, loader, device, args, split=None):
         else:
             RA = None
         logits = model(subgraph_features, node_features, degrees[:, 0], degrees[:, 1], RA, batch_emb)
-        preds.append(logits.view(-1).cpu())
+        if context["multiclass"]:
+            preds.append(logits.cpu())
+        else:
+            preds.append(logits.view(-1).cpu())
         if (batch_count + 1) * args.eval_batch_size > n_samples:
             break
 
@@ -190,9 +194,16 @@ def get_buddy_preds(model, loader, device, args, split=None):
         wandb.log({f"inference_{split}_epoch_time": time.time() - t0})
     pred = torch.cat(preds)
     labels = labels[:len(pred)]
-    pos_pred = pred[labels == 1]
-    neg_pred = pred[labels == 0]
-    return pos_pred, neg_pred, pred, labels
+    if context["multiclass"]:  # only use positive instances
+        pos_pred = pred[labels >= 1]
+        pred = pos_pred
+        neg_pred = None
+        labels = labels[labels >= 1]
+        return pos_pred, neg_pred, pred, labels
+    else:
+        pos_pred = pred[labels == 1]
+        neg_pred = pred[labels == 0]
+        return pos_pred, neg_pred, pred, labels
 
 
 def get_split_samples(split, args, dataset_len):

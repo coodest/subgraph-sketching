@@ -3,10 +3,12 @@ training functions
 """
 import time
 from math import inf
+from src.context import context
 
 import torch
 from torch.utils.data import DataLoader
 from torch.nn import BCEWithLogitsLoss
+import torch.nn.functional as F
 # from tqdm import tqdm
 import wandb
 import numpy as np
@@ -70,7 +72,14 @@ def train_buddy(model, optimizer, train_loader, args, device, emb=None):
         start_time = time.time()
         optimizer.zero_grad()
         logits = model(subgraph_features, node_features, degrees[:, 0], degrees[:, 1], RA, batch_emb)
-        loss = get_loss(args.loss)(logits, labels[indices].squeeze(0).to(device))
+        if context["multiclass"]:
+            y = labels[indices].squeeze(0).to(device)
+            logits = logits[y >= 1]
+            y = y[y >= 1]
+            loss = get_loss(args.loss)(logits, y)
+        else:
+            loss = get_loss(args.loss)(logits, labels[indices].squeeze(0).to(device))
+        # loss = get_loss(args.loss)(logits, labels[indices].squeeze(0).to(device))
 
         loss.backward()
         optimizer.step()
@@ -242,7 +251,10 @@ def auc_loss(logits, y, num_neg=1):
 
 
 def bce_loss(logits, y, num_neg=1):
-    return BCEWithLogitsLoss()(logits.view(-1), y.to(torch.float))
+    if context["multiclass"]:
+        return F.cross_entropy(logits, y)
+    else:
+        return BCEWithLogitsLoss()(logits.view(-1), y.to(torch.float))
 
 
 def get_loss(loss_str):

@@ -1,6 +1,7 @@
 """
 main module
 """
+from src.context import context
 import argparse
 import time
 import warnings
@@ -20,7 +21,7 @@ import wandb
 # not a performance bottleneck, so suppress for now
 from scipy.sparse import SparseEfficiencyWarning
 
-from src.context import context
+
 
 warnings.filterwarnings("ignore", category=SparseEfficiencyWarning)
 
@@ -282,8 +283,8 @@ if __name__ == '__main__':
 
     Logger.path = f"./output/{args.dataset_name}.log"
     if args.multiclass:
-        context["multicalss"] = True
+        context["multiclass"] = True
     else:
-        context["multicalss"] = False
+        context["multiclass"] = False
 
     run(args)

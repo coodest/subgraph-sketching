@@ -1,6 +1,7 @@
 """
 The ELPH model
 """
+from src.context import context
 
 from time import time
 import logging
@@ -266,7 +267,10 @@ class BUDDY(torch.nn.Module):
             self.lin_emb_out = Linear(args.hidden_channels, args.hidden_channels)
             hidden_channels += self.node_embedding.embedding_dim
 
-        self.lin = Linear(hidden_channels + ra_counter, 1)
+        if context["multiclass"]:
+            self.lin = Linear(hidden_channels + ra_counter, context["num_class"])
+        else:
+            self.lin = Linear(hidden_channels + ra_counter, 1)
 
     def propagate_embeddings_func(self, edge_index):
         num_nodes = self.node_embedding.num_embeddings

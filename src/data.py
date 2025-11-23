@@ -136,7 +136,7 @@ def get_data(args):
         eval_metric = 'mrr'
         directed = True
 
-    if use_lcc_flag:
+    if use_lcc_flag and not context["multiclass"]:
         dataset = use_lcc(dataset)
 
     undirected = not directed
